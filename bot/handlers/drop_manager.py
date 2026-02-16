@@ -23,9 +23,11 @@ from bot.keyboards import (
     kb_dm_back_cancel_inline,
     kb_dm_back_to_menu_inline,
     kb_dm_bank_select_inline,
+    kb_dm_bank_select_inline_from_items,
     kb_dm_bank_select_inline_from_names,
     kb_dm_done_inline,
     kb_dm_edit_bank_select_inline,
+    kb_dm_edit_bank_select_inline_from_items,
     kb_dm_edit_bank_select_inline_from_names,
     kb_dm_edit_done_inline,
     kb_dm_edit_actions_inline,
@@ -2449,11 +2451,11 @@ async def form_phone(message: Message, session: AsyncSession, state: FSMContext)
     await ensure_default_banks(session)
     try:
         banks = await list_banks(session)
-        bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+        bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
     except Exception:
-        bank_names = []
+        bank_items = []
     await state.set_state(DropManagerFormStates.bank_select)
-    await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_names(bank_names))
+    await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_items(bank_items))
 
 
 @router.callback_query(F.data == "dm:back_to_phone")
@@ -2469,6 +2471,86 @@ async def dm_back_to_phone_cb(cq: CallbackQuery, state: FSMContext) -> None:
             ),
             reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_forward"),
         )
+
+
+@router.callback_query(F.data.startswith("dm:bank_id:"))
+async def dm_bank_pick_id_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.data:
+        return
+    try:
+        bank_id = int(cq.data.split(":", 2)[-1])
+    except Exception:
+        await cq.answer("Некорректный банк", show_alert=True)
+        return
+    bank = await get_bank(session, bank_id)
+    if not bank:
+        await cq.answer("Некорректный банк", show_alert=True)
+        return
+    bank_name = str(bank.name)
+
+    data = await state.get_data()
+    form_id = data.get("form_id")
+    if not form_id:
+        await cq.answer("Нет анкеты", show_alert=True)
+        return
+    form = await get_form(session, int(form_id))
+    if not form:
+        await state.clear()
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+
+    form.bank_name = bank_name
+
+    if form.phone:
+        dup = await phone_bank_duplicate_exists(
+            session,
+            phone=str(form.phone),
+            bank_name=str(form.bank_name),
+            exclude_form_id=int(form.id),
+        )
+        if dup:
+            other = await get_user_by_id(session, int(dup.manager_id))
+            other_tag = (other.manager_tag if other and other.manager_tag else "—")
+            dm_user = await get_user_by_tg_id(session, cq.from_user.id)
+            if dm_user:
+                await _notify_team_leads_duplicate_bank_phone(
+                    bot=cq.bot,
+                    session=session,
+                    dm_user=dm_user,
+                    phone=str(form.phone),
+                    bank_name=str(form.bank_name),
+                )
+            await state.set_state(DropManagerFormStates.bank_select)
+            if cq.message:
+                await _safe_edit_message(
+                    message=cq.message,
+                    text=(
+                        "❌ Такой номер уже есть для этого банка.\n"
+                        f"Менеджер: <b>{other_tag}</b>, анкета <code>#{dup.id}</code>\n\n"
+                        "Выберите действие:"
+                    ),
+                    reply_markup=kb_dm_duplicate_bank_phone_inline(),
+                )
+            return
+
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    instr = await _get_bank_instructions_text(session, user=user, bank_name=bank_name)
+    await state.set_state(DropManagerFormStates.password)
+    await cq.answer()
+    if cq.message:
+        if instr:
+            await cq.bot.send_message(int(cq.from_user.id), instr, parse_mode="HTML")
+            await cq.bot.send_message(
+                int(cq.from_user.id),
+                "Введите пароль/инкод:",
+                reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
+            )
+        else:
+            await _safe_edit_message(
+                message=cq.message,
+                text="Введите пароль/инкод:",
+                reply_markup=kb_dm_back_cancel_inline(back_cb="dm:back_to_bank_select"),
+            )
 
 
 @router.callback_query(F.data.startswith("dm:bank:"))
@@ -2561,13 +2643,13 @@ async def dm_back_to_bank_select_cb(cq: CallbackQuery, session: AsyncSession, st
     if cq.message:
         try:
             banks = await list_banks(session)
-            bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+            bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
         except Exception:
-            bank_names = []
+            bank_items = []
         await _safe_edit_message(
             message=cq.message,
             text="Выберите банк:",
-            reply_markup=kb_dm_bank_select_inline_from_names(bank_names),
+            reply_markup=kb_dm_bank_select_inline_from_items(bank_items),
         )
 
 
@@ -3080,13 +3162,13 @@ async def form_confirm_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
         if cq.message:
             try:
                 banks = await list_banks(session)
-                bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+                bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = []
+                bank_items = []
             await _safe_edit_message(
                 message=cq.message,
                 text="Выберите банк:",
-                reply_markup=kb_dm_bank_select_inline_from_names(bank_names),
+                reply_markup=kb_dm_bank_select_inline_from_items(bank_items),
             )
         return
 
@@ -3381,13 +3463,13 @@ async def dm_edit_resubmit_cb(cq: CallbackQuery, session: AsyncSession, state: F
             await _cleanup_edit_preview(bot=cq.bot, chat_id=int(cq.message.chat.id), state=state)
             try:
                 banks = await list_banks(session)
-                bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+                bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = []
+                bank_items = []
             await _safe_edit_message(
                 message=cq.message,
                 text="Выберите банк:",
-                reply_markup=kb_dm_edit_bank_select_inline_from_names(form_id=form.id, names=bank_names),
+                reply_markup=kb_dm_edit_bank_select_inline_from_items(form_id=form.id, items=bank_items),
             )
         return
 
@@ -3605,14 +3687,14 @@ async def dm_edit_field_cb(cq: CallbackQuery, session: AsyncSession, state: FSMC
         if cq.message:
             try:
                 banks = await list_banks(session)
-                bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+                bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = []
+                bank_items = []
             await _set_edit_prompt_message(
                 message=cq.message,
                 state=state,
                 text="Выберите банк:",
-                reply_markup=kb_dm_edit_bank_select_inline_from_names(form_id=form.id, names=bank_names),
+                reply_markup=kb_dm_edit_bank_select_inline_from_items(form_id=form.id, items=bank_items),
             )
         return
 
@@ -3768,14 +3850,14 @@ async def edit_choose_field(message: Message, session: AsyncSession, state: FSMC
             await state.set_state(DropManagerEditStates.bank_select)
             try:
                 banks = await list_banks(session)
-                bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+                bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = []
+                bank_items = []
             await _set_edit_prompt_message(
                 message=message,
                 state=state,
                 text="Выберите банк:",
-                reply_markup=kb_dm_edit_bank_select_inline_from_names(form_id=form.id, names=bank_names),
+                reply_markup=kb_dm_edit_bank_select_inline_from_items(form_id=form.id, items=bank_items),
             )
             return
         form.status = FormStatus.PENDING
@@ -4090,6 +4172,53 @@ async def edit_bank_custom(message: Message, session: AsyncSession, state: FSMCo
     if not await get_bank_by_name(session, name):
         await create_bank(session, name)
     await _after_dm_edit_show_form(message=message, session=session, state=state, form=form)
+
+
+@router.callback_query(F.data.startswith("dm_edit:bank_pick_id:"))
+async def dm_edit_bank_pick_id_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if not cq.from_user:
+        return
+    parts = (cq.data or "").split(":")
+    if len(parts) != 5:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+    try:
+        form_id = int(parts[3])
+        bank_id = int(parts[4])
+    except Exception:
+        await cq.answer("Некорректная кнопка", show_alert=True)
+        return
+
+    user = await get_user_by_tg_id(session, cq.from_user.id)
+    if not user or user.role != UserRole.DROP_MANAGER:
+        await cq.answer("Нет прав", show_alert=True)
+        return
+    form = await get_form(session, form_id)
+    if not form or form.manager_id != user.id:
+        await cq.answer("Анкета не найдена", show_alert=True)
+        return
+
+    bank = await get_bank(session, bank_id)
+    if not bank:
+        await cq.answer("Некорректный банк", show_alert=True)
+        return
+
+    form.bank_name = str(bank.name)
+    await cq.answer("Сохранено")
+
+    await state.set_state(DropManagerEditStates.choose_field)
+    await state.update_data(form_id=form.id)
+    manager_tag = user.manager_tag or "—"
+    text = _format_form_text(form, manager_tag)
+    photos = list(form.screenshots or [])
+    await _send_form_preview_with_keyboard(
+        bot=cq.bot,
+        chat_id=int(cq.message.chat.id) if cq.message else int(cq.from_user.id),
+        text=text,
+        photos=photos,
+        reply_markup=kb_dm_edit_actions_inline(form.id),
+        state=state,
+    )
 
 
 @router.callback_query(F.data.startswith("dm_edit:bank_pick:"))
@@ -4445,20 +4574,20 @@ async def form_back_to_bank_select(message: Message, session: AsyncSession, stat
     await state.set_state(DropManagerFormStates.bank_select)
     try:
         banks = await list_banks(session)
-        bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+        bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
     except Exception:
-        bank_names = []
-    await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_names(bank_names))
+        bank_items = []
+    await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_items(bank_items))
 
 @router.message(DropManagerFormStates.password, F.text == "Назад")
 async def form_back_to_bank_select_from_password(message: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.set_state(DropManagerFormStates.bank_select)
     try:
         banks = await list_banks(session)
-        bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
+        bank_items = [(int(b.id), str(b.name)) for b in banks if getattr(b, "name", None)]
     except Exception:
-        bank_names = []
-    await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_names(bank_names))
+        bank_items = []
+    await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_items(bank_items))
 
 @router.message(DropManagerFormStates.screenshots, F.text == "Назад")
 async def form_back_to_password(message: Message, state: FSMContext) -> None:

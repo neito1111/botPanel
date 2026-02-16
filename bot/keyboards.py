@@ -472,6 +472,16 @@ def kb_dm_bank_select_inline_from_names(names: list[str]) -> InlineKeyboardMarku
     return b.as_markup()
 
 
+def kb_dm_bank_select_inline_from_items(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for bank_id, name in items:
+        b.button(text=name, callback_data=f"dm:bank_id:{int(bank_id)}")
+    b.button(text="Написать название", callback_data="dm:bank_custom")
+    b.button(text="⬅️ Назад", callback_data="dm:back_to_phone")
+    b.adjust(3, 1)
+    return b.as_markup()
+
+
 def kb_dm_edit_bank_select_inline(*, form_id: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for name in DEFAULT_BANKS:
@@ -486,6 +496,16 @@ def kb_dm_edit_bank_select_inline_from_names(*, form_id: int, names: list[str]) 
     b = InlineKeyboardBuilder()
     for name in names:
         b.button(text=name, callback_data=f"dm_edit:bank_pick:{int(form_id)}:{name}")
+    b.button(text="Написать название", callback_data=f"dm_edit:bank_custom:{int(form_id)}")
+    b.button(text="⬅️ Назад", callback_data=f"dm_edit:back:{int(form_id)}")
+    b.adjust(3, 1)
+    return b.as_markup()
+
+
+def kb_dm_edit_bank_select_inline_from_items(*, form_id: int, items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for bank_id, name in items:
+        b.button(text=name, callback_data=f"dm_edit:bank_pick_id:{int(form_id)}:{int(bank_id)}")
     b.button(text="Написать название", callback_data=f"dm_edit:bank_custom:{int(form_id)}")
     b.button(text="⬅️ Назад", callback_data=f"dm_edit:back:{int(form_id)}")
     b.adjust(3, 1)
@@ -1013,6 +1033,7 @@ def kb_bank_open(bank_id: int, *, has_conditions: bool) -> InlineKeyboardMarkup:
         b.button(text="Редактировать", callback_data=BankCb(action="edit", bank_id=bank_id).pack())
     else:
         b.button(text="Создать условия", callback_data=BankCb(action="setup", bank_id=bank_id).pack())
+    b.button(text="🗑 Удалить банк", callback_data=BankEditCb(action="delete", bank_id=bank_id).pack())
     b.button(text="Назад", callback_data=TeamLeadMenuCb(action="banks").pack())
     b.adjust(1)
     return b.as_markup()
