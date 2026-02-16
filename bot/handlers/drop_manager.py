@@ -1759,11 +1759,15 @@ async def _finalize_shift_with_comment(
     bank_order = [b for b in DEFAULT_BANKS if b in seen] + [b for b in sorted(seen) if b not in DEFAULT_BANKS]
     if "Без банка" in seen:
         bank_order = [b for b in bank_order if b != "Без банка"] + ["Без банка"]
+    total_direct = 0
+    total_referral = 0
     for bank in bank_order:
         direct = bank_map.get(bank, {}).get("DIRECT", 0)
         referral = bank_map.get(bank, {}).get("REFERRAL", 0)
         if direct == 0 and referral == 0:
             continue
+        total_direct += direct
+        total_referral += referral
         bank_display = bank if bank == "Без банка" else (bank[:1].upper() + bank[1:].lower()) if bank else "—"
         lines.append(f"{bank_display}:")
         lines.append(f"Прямой - <b>{direct}</b>")
@@ -1772,6 +1776,13 @@ async def _finalize_shift_with_comment(
 
     if lines and lines[-1] == "":
         lines.pop()
+
+    lines.extend([
+        "",
+        "<b>Суммарно за день:</b>",
+        f"Прямой - <b>{total_direct}</b>",
+        f"Сарафан - <b>{total_referral}</b>",
+    ])
 
     com = (comment_of_day or "").strip() or "—"
     lines.extend(["", "<b>Комментарий дня:</b>", com])
