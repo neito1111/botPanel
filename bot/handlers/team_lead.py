@@ -31,6 +31,7 @@ from bot.repositories import (
     create_bank,
     get_forward_group_by_id,
     get_active_shift,
+    delete_bank_condition,
     get_bank,
     get_bank_by_name,
     get_form,
@@ -850,8 +851,8 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
 
     src = await _get_team_lead_source(session, cq.from_user.id)
     allowed = {
-        TeamLeadSource.TG: {"rename", "instructions_tg", "required_tg", "back"},
-        TeamLeadSource.FB: {"rename", "instructions_fb", "required_fb", "back"},
+        TeamLeadSource.TG: {"rename", "instructions_tg", "required_tg", "delete", "back"},
+        TeamLeadSource.FB: {"rename", "instructions_fb", "required_fb", "delete", "back"},
     }
     if callback_data.action not in allowed.get(src, set()):
         await cq.answer("Нет прав", show_alert=True)
@@ -871,6 +872,19 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
             )
             has_cond = _has_conditions(bank)
             await cq.message.edit_text(text, reply_markup=kb_bank_open(bank.id, has_conditions=has_cond))
+        return
+
+    if callback_data.action == "delete":
+        ok = await delete_bank_condition(session, int(bank.id))
+        await state.clear()
+        if not ok:
+            await cq.answer("Банк не найден", show_alert=True)
+            return
+        await cq.answer("Банк удалён")
+        banks = await list_banks(session)
+        items = [(b.id, b.name) for b in banks]
+        if cq.message:
+            await cq.message.answer("✅ Банк удалён.\n🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
         return
 
     await state.clear()

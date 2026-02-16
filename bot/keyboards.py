@@ -1039,6 +1039,7 @@ def kb_bank_edit_for_source(bank_id: int, *, source: str) -> InlineKeyboardMarku
     else:
         b.button(text="Текст условий (TG)", callback_data=BankEditCb(action="instructions_tg", bank_id=bank_id).pack())
         b.button(text="Кол-во скринов (TG)", callback_data=BankEditCb(action="required_tg", bank_id=bank_id).pack())
+    b.button(text="🗑 Удалить банк", callback_data=BankEditCb(action="delete", bank_id=bank_id).pack())
     b.button(text="Назад", callback_data=BankEditCb(action="back", bank_id=bank_id).pack())
     b.adjust(1)
     return b.as_markup()

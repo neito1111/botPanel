@@ -7,7 +7,7 @@ import pytest
 
 from bot.keyboards import kb_dm_my_forms_list
 from bot.models import DuplicateReport, Form, FormStatus, User, UserRole
-from bot.repositories import list_user_forms_in_range, phone_bank_duplicate_exists, update_bank
+from bot.repositories import delete_bank_condition, list_user_forms_in_range, phone_bank_duplicate_exists, update_bank
 from bot.utils import format_form_status, is_valid_phone, normalize_phone
 
 
@@ -94,3 +94,23 @@ async def test_update_bank_renames_related_records(session) -> None:
     assert bank.name == "Mono"
     assert f.bank_name == "Mono"
     assert d.bank_name == "Mono"
+
+
+@pytest.mark.asyncio
+async def test_delete_bank_keeps_old_form_bank_name(session) -> None:
+    u = User(tg_id=401, role=UserRole.DROP_MANAGER)
+    session.add(u)
+    await session.flush()
+
+    from bot.repositories import create_bank, get_bank
+    bank = await create_bank(session, "Альянс")
+    f = Form(manager_id=u.id, status=FormStatus.PENDING, phone="+380 991111111", bank_name="Альянс")
+    session.add(f)
+    await session.flush()
+
+    ok = await delete_bank_condition(session, bank.id)
+    await session.flush()
+
+    assert ok is True
+    assert await get_bank(session, bank.id) is None
+    assert f.bank_name == "Альянс"

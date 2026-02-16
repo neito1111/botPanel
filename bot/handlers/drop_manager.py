@@ -2451,7 +2451,7 @@ async def form_phone(message: Message, session: AsyncSession, state: FSMContext)
         banks = await list_banks(session)
         bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
     except Exception:
-        bank_names = list(DEFAULT_BANKS)
+        bank_names = []
     await state.set_state(DropManagerFormStates.bank_select)
     await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_names(bank_names))
 
@@ -2563,7 +2563,7 @@ async def dm_back_to_bank_select_cb(cq: CallbackQuery, session: AsyncSession, st
             banks = await list_banks(session)
             bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
         except Exception:
-            bank_names = list(DEFAULT_BANKS)
+            bank_names = []
         await _safe_edit_message(
             message=cq.message,
             text="Выберите банк:",
@@ -3082,7 +3082,7 @@ async def form_confirm_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
                 banks = await list_banks(session)
                 bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = list(DEFAULT_BANKS)
+                bank_names = []
             await _safe_edit_message(
                 message=cq.message,
                 text="Выберите банк:",
@@ -3383,7 +3383,7 @@ async def dm_edit_resubmit_cb(cq: CallbackQuery, session: AsyncSession, state: F
                 banks = await list_banks(session)
                 bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = list(DEFAULT_BANKS)
+                bank_names = []
             await _safe_edit_message(
                 message=cq.message,
                 text="Выберите банк:",
@@ -3607,7 +3607,7 @@ async def dm_edit_field_cb(cq: CallbackQuery, session: AsyncSession, state: FSMC
                 banks = await list_banks(session)
                 bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = list(DEFAULT_BANKS)
+                bank_names = []
             await _set_edit_prompt_message(
                 message=cq.message,
                 state=state,
@@ -3770,7 +3770,7 @@ async def edit_choose_field(message: Message, session: AsyncSession, state: FSMC
                 banks = await list_banks(session)
                 bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
             except Exception:
-                bank_names = list(DEFAULT_BANKS)
+                bank_names = []
             await _set_edit_prompt_message(
                 message=message,
                 state=state,
@@ -4447,7 +4447,7 @@ async def form_back_to_bank_select(message: Message, session: AsyncSession, stat
         banks = await list_banks(session)
         bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
     except Exception:
-        bank_names = list(DEFAULT_BANKS)
+        bank_names = []
     await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_names(bank_names))
 
 @router.message(DropManagerFormStates.password, F.text == "Назад")
@@ -4457,7 +4457,7 @@ async def form_back_to_bank_select_from_password(message: Message, session: Asyn
         banks = await list_banks(session)
         bank_names = [str(b.name) for b in banks if getattr(b, "name", None)]
     except Exception:
-        bank_names = list(DEFAULT_BANKS)
+        bank_names = []
     await message.answer("Выберите банк:", reply_markup=kb_dm_bank_select_inline_from_names(bank_names))
 
 @router.message(DropManagerFormStates.screenshots, F.text == "Назад")

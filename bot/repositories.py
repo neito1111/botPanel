@@ -26,11 +26,9 @@ DEFAULT_BANKS = ["Пумб", "Моно", "Альянс", "Фрибанк", "Ма
 
 
 async def ensure_default_banks(session: AsyncSession) -> None:
-    res = await session.execute(select(BankCondition.name))
-    existing = {r[0] for r in res.all()}
-    for name in DEFAULT_BANKS:
-        if name not in existing:
-            session.add(BankCondition(name=name, instructions=None, required_screens=None, template_screens=[]))
+    # Defaults are intentionally NOT auto-created.
+    # Banks must be created manually via bot UI.
+    return
 
 
 async def upsert_user_from_tg(
@@ -296,6 +294,14 @@ async def get_bank(session: AsyncSession, bank_id: int) -> BankCondition | None:
 async def list_banks(session: AsyncSession) -> list[BankCondition]:
     res = await session.execute(select(BankCondition).order_by(BankCondition.name.asc()))
     return list(res.scalars().all())
+
+
+async def delete_bank_condition(session: AsyncSession, bank_id: int) -> bool:
+    bank = await get_bank(session, bank_id)
+    if not bank:
+        return False
+    await session.delete(bank)
+    return True
 
 
 async def list_forward_groups(session: AsyncSession) -> list[ForwardGroup]:
