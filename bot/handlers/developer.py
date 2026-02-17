@@ -725,14 +725,18 @@ async def dev_set_user_role_cb(cq: CallbackQuery, session: AsyncSession, state: 
 
     # If TEAM_LEAD selected, ask for TG/FB source and create TeamLead record after that
     if role == "TEAM_LEAD":
-        await cq.answer()
+        await cq.answer("Роль сохранена")
         await state.set_state(DeveloperStates.user_view)
         await state.update_data(current_user_id=tg_id)
         if cq.message:
-            await cq.message.edit_text(
-                f"👤 <b>ПОЛЬЗОВАТЕЛЬ #{tg_id}</b>\n\nВыберите источник тим‑лида:",
-                reply_markup=kb_dev_pick_team_lead_source(tg_id),
-            )
+            try:
+                await cq.message.edit_text(
+                    f"👤 <b>ПОЛЬЗОВАТЕЛЬ #{tg_id}</b>\n\nВыберите источник тим‑лида:",
+                    reply_markup=kb_dev_pick_team_lead_source(tg_id),
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e).lower():
+                    raise
         return
 
     await cq.answer("Сохранено")
@@ -746,10 +750,14 @@ async def dev_set_user_role_cb(cq: CallbackQuery, session: AsyncSession, state: 
                 title = getattr(g, "title", None) or "—"
                 group_line = f"#{g.id} <code>{g.chat_id}</code> {title}"
         details = _format_user_line(user, group_line)
-        await cq.message.edit_text(
-            f"👤 <b>ПОЛЬЗОВАТЕЛЬ #{tg_id}</b>\n\n{details}\n\nВыберите действие:",
-            reply_markup=kb_dev_user_actions(tg_id),
-        )
+        try:
+            await cq.message.edit_text(
+                f"👤 <b>ПОЛЬЗОВАТЕЛЬ #{tg_id}</b>\n\n{details}\n\nВыберите действие:",
+                reply_markup=kb_dev_user_actions(tg_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
 
 
 @router.callback_query(F.data.startswith("dev:set_team_lead_source:"))
