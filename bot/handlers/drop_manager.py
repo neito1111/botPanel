@@ -662,6 +662,8 @@ def _format_form_text(form: Form, manager_tag: str, manager_source: str | None =
     source_line = f"Источник: <b>{html.escape(src)}</b>\n"
     traffic_line = "" if src == "TG" else f"Тип клиента: <b>{traffic}</b>\n"
 
+    client_lines = "" if src == "TG" else f"Клиент: {direct_user}\n{ref_line}"
+
     return (
         f"{status_line}\n\n"
         "📄 <b>Анкета</b>\n"
@@ -669,8 +671,7 @@ def _format_form_text(form: Form, manager_tag: str, manager_source: str | None =
         f"{source_line}"
         f"Тег менеджера: <b>{safe_manager_tag}</b>\n"
         f"{traffic_line}"
-        f"Клиент: {direct_user}\n"
-        f"{ref_line}"
+        f"{client_lines}"
         f"{tl_comment_line}"
         f"Номер: <code>{safe_phone}</code>\n"
         f"Банк: <b>{bank_tag}</b>\n"
@@ -1468,9 +1469,9 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
     user_source = (getattr(user, "manager_source", None) or "").upper()
     if not traffic_type:
         if user_source == "TG":
-            await state.set_state(DropManagerFormStates.direct_forward)
+            await state.set_state(DropManagerFormStates.phone)
             await _prompt(
-                "Перешлите сообщение клиента (форвард):",
+                "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
                 kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
             )
         else:
@@ -1504,9 +1505,10 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
 
     if not form.phone:
         await state.set_state(DropManagerFormStates.phone)
+        back_cb = "dm:cancel_form" if user_source == "TG" else "dm:back_to_forward"
         await _prompt(
             "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
-            kb_dm_back_cancel_inline(back_cb="dm:back_to_forward"),
+            kb_dm_back_cancel_inline(back_cb=back_cb),
         )
         return
 
@@ -1963,9 +1965,11 @@ async def create_form_entry(message: Message, session: AsyncSession, state: FSMC
     await state.update_data(form_id=form.id)
     if (getattr(user, "manager_source", None) or "").upper() == "TG":
         form.traffic_type = None
-        await state.set_state(DropManagerFormStates.direct_forward)
+        form.direct_user = None
+        form.referral_user = None
+        await state.set_state(DropManagerFormStates.phone)
         await message.answer(
-            "Перешлите сообщение клиента (форвард):",
+            "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
             reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
         )
     else:
@@ -2002,10 +2006,12 @@ async def dm_create_form_cb(cq: CallbackQuery, session: AsyncSession, state: FSM
     await cq.answer()
     if (getattr(user, "manager_source", None) or "").upper() == "TG":
         form.traffic_type = None
-        await state.set_state(DropManagerFormStates.direct_forward)
+        form.direct_user = None
+        form.referral_user = None
+        await state.set_state(DropManagerFormStates.phone)
         if cq.message:
             await cq.message.edit_text(
-                "Перешлите сообщение клиента (форвард):",
+                "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
             )
     else:
@@ -2060,10 +2066,10 @@ async def dm_back_to_traffic_cb(cq: CallbackQuery, session: AsyncSession, state:
     await cq.answer()
     user = await get_user_by_tg_id(session, int(cq.from_user.id)) if cq.from_user else None
     if user and (getattr(user, "manager_source", None) or "").upper() == "TG":
-        await state.set_state(DropManagerFormStates.direct_forward)
+        await state.set_state(DropManagerFormStates.phone)
         if cq.message:
             await cq.message.edit_text(
-                "Перешлите сообщение клиента (форвард):",
+                "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
                 reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
             )
         return
@@ -2262,6 +2268,17 @@ async def form_direct_forward(message: Message, session: AsyncSession, state: FS
     form = await get_form(session, int(data["form_id"]))
     if not form:
         await state.clear()
+        return
+    user = await get_user_by_tg_id(session, int(message.from_user.id)) if message.from_user else None
+    if user and (getattr(user, "manager_source", None) or "").upper() == "TG":
+        form.traffic_type = None
+        form.direct_user = None
+        form.referral_user = None
+        await state.set_state(DropManagerFormStates.phone)
+        await message.answer(
+            "Напишите номер и перешлите его в бота.\nСообщение должно содержать <b>только номер</b> и ничего больше:",
+            reply_markup=kb_dm_back_cancel_inline(back_cb="dm:cancel_form"),
+        )
         return
     payload = extract_forward_payload(message)
     payload = await _enrich_forward_payload_tg_id(bot=message.bot, payload=payload)
