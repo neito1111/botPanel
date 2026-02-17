@@ -359,8 +359,15 @@ async def _list_banks_for_tl_source(session: AsyncSession, source: TeamLeadSourc
         return bool((getattr(bank, "instructions", None) or "").strip()) or getattr(bank, "required_screens", None) is not None
 
     if src == "FB":
-        return [b for b in banks if _has_fb(b) or (_has_legacy(b) and not _has_tg(b))]
-    return [b for b in banks if _has_tg(b) or (_has_legacy(b) and not _has_fb(b))]
+        picked = [b for b in banks if _has_fb(b) or (_has_legacy(b) and not _has_tg(b))]
+        if picked:
+            return picked
+        return [b for b in banks if _has_fb(b) or not _has_tg(b)]
+
+    picked = [b for b in banks if _has_tg(b) or (_has_legacy(b) and not _has_fb(b))]
+    if picked:
+        return picked
+    return [b for b in banks if _has_tg(b) or not _has_fb(b)]
 
 
 def _tl_bank_items_with_source(banks: list, source: TeamLeadSource) -> list[tuple[int, str]]:
