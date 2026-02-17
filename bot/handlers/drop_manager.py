@@ -2574,7 +2574,8 @@ async def form_phone(message: Message, session: AsyncSession, state: FSMContext)
 
     await ensure_default_banks(session)
     try:
-        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None))
+        user = await get_user_by_tg_id(session, message.from_user.id) if message.from_user else None
+        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
         bank_items = _dm_bank_items_with_source(banks, getattr(user, "manager_source", None) if user else None)
     except Exception:
         bank_items = []
