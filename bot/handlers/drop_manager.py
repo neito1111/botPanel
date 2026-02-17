@@ -23,13 +23,9 @@ from bot.keyboards import (
     kb_back,
     kb_dm_back_cancel_inline,
     kb_dm_back_to_menu_inline,
-    kb_dm_bank_select_inline,
     kb_dm_bank_select_inline_from_items,
-    kb_dm_bank_select_inline_from_names,
     kb_dm_done_inline,
-    kb_dm_edit_bank_select_inline,
     kb_dm_edit_bank_select_inline_from_items,
-    kb_dm_edit_bank_select_inline_from_names,
     kb_dm_edit_done_inline,
     kb_dm_edit_actions_inline,
     kb_dm_edit_screens_inline,
@@ -1569,7 +1565,9 @@ async def dm_my_form_resume_cb(cq: CallbackQuery, session: AsyncSession, state: 
 
     if not form.bank_name:
         await state.set_state(DropManagerFormStates.bank_select)
-        await _prompt("Выберите банк:", kb_dm_bank_select_inline())
+        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
+        bank_items = _dm_bank_items_with_source(banks, getattr(user, "manager_source", None) if user else None)
+        await _prompt("Выберите банк:", kb_dm_bank_select_inline_from_items(bank_items))
         return
 
     if not form.password:
@@ -4035,11 +4033,14 @@ async def edit_choose_field(message: Message, session: AsyncSession, state: FSMC
         return
     if choice == "Банк":
         await state.set_state(DropManagerEditStates.bank_select)
+        user = await get_user_by_id(session, form.manager_id)
+        banks = await _list_banks_for_dm_source(session, getattr(user, "manager_source", None) if user else None)
+        bank_items = _dm_bank_items_with_source(banks, getattr(user, "manager_source", None) if user else None)
         await _set_edit_prompt_message(
             message=message,
             state=state,
             text="Выберите банк:",
-            reply_markup=kb_dm_edit_bank_select_inline(form_id=form.id),
+            reply_markup=kb_dm_edit_bank_select_inline_from_items(form_id=form.id, items=bank_items),
         )
         return
     if choice == "Пароль":
