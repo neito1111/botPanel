@@ -831,6 +831,31 @@ async def _send_form_preview_with_keyboard(
         return
 
 
+async def _after_dm_edit_show_form(*, message: Message, session: AsyncSession, state: FSMContext, form: Form) -> None:
+    user = await get_user_by_tg_id(session, int(message.from_user.id)) if message.from_user else None
+    manager_tag = (user.manager_tag if user and user.manager_tag else "—")
+    manager_source = (getattr(user, "manager_source", None) if user else None)
+    text = _format_form_text(form, manager_tag, manager_source)
+
+    chat_id = int(message.chat.id)
+    await _cleanup_edit_prompt(bot=message.bot, chat_id=chat_id, state=state)
+    await _cleanup_edit_preview(bot=message.bot, chat_id=chat_id, state=state)
+
+    data = await state.get_data()
+    edit_return_mode = data.get("edit_return_mode")
+    await state.set_state(DropManagerEditStates.choose_field)
+    await state.update_data(form_id=form.id, edit_return_mode=edit_return_mode)
+
+    await _send_form_preview_with_keyboard(
+        bot=message.bot,
+        chat_id=chat_id,
+        text=text,
+        photos=list(form.screenshots or []),
+        reply_markup=kb_dm_edit_actions_inline(form.id),
+        state=state,
+    )
+
+
 async def _send_photos_simple(message_or_bot: Any, chat_id: int, photos: list[str]) -> None:
     if not photos:
         return
