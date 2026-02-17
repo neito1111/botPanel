@@ -359,6 +359,18 @@ async def _list_banks_for_tl_source(session: AsyncSession, source: TeamLeadSourc
     ]
 
 
+def _tl_bank_items_with_source(banks: list, source: TeamLeadSource) -> list[tuple[int, str]]:
+    src = (str(source).split(".")[-1] if source else "TG").upper()
+    suffix = "FB" if src == "FB" else "TG"
+    items: list[tuple[int, str]] = []
+    for b in banks:
+        name = str(getattr(b, "name", "") or "").strip()
+        if not name:
+            continue
+        items.append((int(b.id), f"{name} ({suffix})"))
+    return items
+
+
 def _format_bank_conditions_for_tl(bank, source: TeamLeadSource) -> str | None:
     if not bank:
         return None
@@ -580,7 +592,7 @@ async def team_lead_menu(message: Message, session: AsyncSession) -> None:
     # banks
     src = await _get_team_lead_source(session, message.from_user.id)
     banks = await _list_banks_for_tl_source(session, src)
-    items = [(b.id, b.name) for b in banks]
+    items = _tl_bank_items_with_source(banks, src)
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
 
@@ -759,7 +771,7 @@ async def tl_banks(cq: CallbackQuery, session: AsyncSession, settings: Settings)
         pass
     src = await _get_team_lead_source(session, cq.from_user.id)
     banks = await _list_banks_for_tl_source(session, src)
-    items = [(b.id, b.name) for b in banks]
+    items = _tl_bank_items_with_source(banks, src)
     if cq.message:
         await cq.message.edit_text("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
@@ -871,7 +883,7 @@ async def bank_create_name(message: Message, session: AsyncSession, state: FSMCo
         await message.answer(f"⚠️ Банк <b>{existing.name}</b> уже существует.")
         src = await _get_team_lead_source(session, message.from_user.id)
         banks = await _list_banks_for_tl_source(session, src)
-        items = [(b.id, b.name) for b in banks]
+        items = _tl_bank_items_with_source(banks, src)
         await message.answer("Выберите банк:", reply_markup=kb_banks_list(items))
         return
 
@@ -928,7 +940,7 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
         await cq.answer("Банк удалён")
         await _notify_active_dms_banks_updated(cq.bot, session)
         banks = await _list_banks_for_tl_source(session, src)
-        items = [(b.id, b.name) for b in banks]
+        items = _tl_bank_items_with_source(banks, src)
         if cq.message:
             await cq.message.answer("✅ Банк удалён.\n🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
         return
@@ -1026,7 +1038,7 @@ async def bank_rename_back(message: Message, session: AsyncSession, state: FSMCo
 
     src = await _get_team_lead_source(session, message.from_user.id)
     banks = await _list_banks_for_tl_source(session, src)
-    items = [(b.id, b.name) for b in banks]
+    items = _tl_bank_items_with_source(banks, src)
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
 
@@ -1103,7 +1115,7 @@ async def bank_instructions_back(message: Message, session: AsyncSession, state:
     # default: banks list
     src = await _get_team_lead_source(session, message.from_user.id)
     banks = await _list_banks_for_tl_source(session, src)
-    items = [(b.id, b.name) for b in banks]
+    items = _tl_bank_items_with_source(banks, src)
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
 
@@ -1186,7 +1198,7 @@ async def bank_required_back(message: Message, session: AsyncSession, state: FSM
 
     src = await _get_team_lead_source(session, message.from_user.id)
     banks = await _list_banks_for_tl_source(session, src)
-    items = [(b.id, b.name) for b in banks]
+    items = _tl_bank_items_with_source(banks, src)
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
 
@@ -1199,7 +1211,7 @@ async def bank_custom_name_back(message: Message, session: AsyncSession, state: 
     await state.clear()
     src = await _get_team_lead_source(session, message.from_user.id)
     banks = await _list_banks_for_tl_source(session, src)
-    items = [(b.id, b.name) for b in banks]
+    items = _tl_bank_items_with_source(banks, src)
     await message.answer("🏦 <b>Условия для сдачи</b>", reply_markup=kb_banks_list(items))
 
 
