@@ -2140,7 +2140,7 @@ async def dm_back_to_traffic_cb(cq: CallbackQuery, session: AsyncSession, state:
         await cq.message.edit_text("Выберите тип клиента:", reply_markup=kb_dm_traffic_type_inline())
 
 
-@router.callback_query(F.data == "dm:cancel_form")
+@router.callback_query(F.data.in_({"dm:cancel_form", "dm:cancel"}))
 async def dm_cancel_form_cb(cq: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await cq.answer()
     data = await state.get_data()
