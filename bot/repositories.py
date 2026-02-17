@@ -205,6 +205,7 @@ async def delete_user_by_tg_id(session: AsyncSession, tg_id: int) -> bool:
     await session.execute(delete(AccessRequest).where(AccessRequest.user_id == user_id))
     await session.execute(delete(Form).where(Form.manager_id == user_id))
     await session.execute(delete(Shift).where(Shift.manager_id == user_id))
+    await session.execute(delete(DuplicateReport).where(DuplicateReport.manager_id == user_id))
     # user
     await session.delete(user)
     return True
