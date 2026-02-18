@@ -578,6 +578,22 @@ async def _finish_payment(
     src = (getattr(user, "manager_source", None) or "").upper() if user else ""
     # TG: after finishing payment always return to main menu as requested
     if src == "TG":
+        try:
+            if actor_id:
+                dm_user = await get_user_by_tg_id(session, actor_id)
+                if dm_user and dm_user.role == UserRole.DROP_MANAGER:
+                    shift = await get_active_shift(session, dm_user.id)
+                    src_line = getattr(dm_user, "manager_source", None) or "—"
+                    text = (
+                        f"👤 <b>Дроп‑менеджер</b>: <b>{dm_user.manager_tag or '—'}</b>\n"
+                        f"Источник: <b>{src_line}</b>\n"
+                        f"Смена: <b>{'активна' if shift else 'не активна'}</b>"
+                    )
+                    kb = await _build_dm_main_kb(session=session, user_id=int(dm_user.id), shift_active=bool(shift))
+                    await message.bot.send_message(int(actor_id), text, reply_markup=kb)
+                    return
+        except Exception:
+            pass
         await _render_dm_menu(message, session)
         return
 
