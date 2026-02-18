@@ -534,11 +534,14 @@ async def _finish_payment(
     state: FSMContext,
     form: Form,
     payment_text: str | list[str],
+    actor_tg_id: int | None = None,
 ) -> None:
-    user = await get_user_by_tg_id(session, message.from_user.id)
+    actor_id = int(actor_tg_id or getattr(getattr(message, "from_user", None), "id", 0) or 0)
+    user = await get_user_by_tg_id(session, actor_id) if actor_id else None
     manager_tag = (getattr(user, "manager_tag", None) or "—") if user else "—"
+    manager_source = (getattr(user, "manager_source", None) or None) if user else None
     try:
-        form_text = _format_form_text(form, manager_tag)
+        form_text = _format_form_text(form, manager_tag, manager_source=manager_source)
     except Exception:
         form_text = f"📄 <b>Анкета</b>\nID: <code>{form.id}</code>"
 
@@ -1341,7 +1344,14 @@ async def dm_pay_finish_cb(cq: CallbackQuery, session: AsyncSession, state: FSMC
 
     await cq.answer()
     if cq.message:
-        await _finish_payment(message=cq.message, session=session, state=state, form=form, payment_text=payment_text)
+        await _finish_payment(
+            message=cq.message,
+            session=session,
+            state=state,
+            form=form,
+            payment_text=payment_text,
+            actor_tg_id=int(cq.from_user.id),
+        )
 
 
 @router.message(DropManagerPaymentStates.phone_bonus, F.text)
