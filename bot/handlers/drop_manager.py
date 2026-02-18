@@ -1325,8 +1325,46 @@ async def dm_pay_add_card_cb(cq: CallbackQuery, session: AsyncSession, state: FS
 
 
 @router.message(DropManagerPaymentStates.next_action, F.text)
-async def dm_pay_next_action_text(message: Message) -> None:
-    await message.answer("Используйте кнопки: Добавить карту или Финал", reply_markup=kb_dm_payment_next_actions())
+async def dm_pay_next_action_text(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    txt = (message.text or "").strip().lower()
+
+    if txt in {"добавить карту", "добавить"}:
+        await state.set_state(DropManagerPaymentStates.card_main)
+        await message.answer("Напишите или перешлите номер карты")
+        return
+
+    if txt in {"финал", "final", "готово"}:
+        data = await state.get_data()
+        form = await get_form(session, int(data.get("pay_form_id") or 0))
+        if not form:
+            await state.clear()
+            return
+        pay_items = list(data.get("pay_items") or [])
+        if not pay_items:
+            await message.answer("Добавьте хотя бы одну карту", reply_markup=kb_dm_payment_next_actions())
+            return
+        payment_text: list[str] = []
+        for item in pay_items:
+            card = str(item.get("card") or "").strip()
+            amount = str(item.get("amount") or "").strip()
+            if not card or not amount:
+                continue
+            payment_text.append(f"Оплата {_format_payment_phone(form.phone)}\n\n{card}\n\n{amount}")
+        if not payment_text:
+            await message.answer("Некорректные данные оплаты", reply_markup=kb_dm_payment_next_actions())
+            return
+        await _finish_payment(message=message, session=session, state=state, form=form, payment_text=payment_text)
+        return
+
+    # Convenience: if DM sends card directly instead of pressing button, continue flow
+    card = _normalize_card(message.text)
+    if 12 <= len(card) <= 19:
+        await state.update_data(pay_card_main=card)
+        await state.set_state(DropManagerPaymentStates.amount_main)
+        await message.answer("Напишите или перешлите сумму оплаты")
+        return
+
+    await message.answer("Нажмите «Добавить карту» или «Финал»", reply_markup=kb_dm_payment_next_actions())
 
 
 @router.callback_query(F.data == "dm:pay_finish")
