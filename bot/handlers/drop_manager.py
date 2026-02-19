@@ -1050,18 +1050,13 @@ async def _notify_team_leads_new_form(
     form: Form,
     manager_tag: str,
 ) -> None:
-    # route by manager source (TG/FB) using DB-backed team leads
-    src = "TG"
-    try:
-        if getattr(form, "manager", None) and getattr(form.manager, "manager_source", None):
-            src = (form.manager.manager_source or "TG").upper() or "TG"
-    except Exception:
-        src = "TG"
+    # strict route by manager source (TG/FB) from users table
+    dm = await get_user_by_id(session, form.manager_id)
+    src = (getattr(dm, "manager_source", None) or "TG").upper() or "TG"
 
     tl_ids = await list_team_lead_ids_by_source(session, src)
     if not tl_ids:
         return
-    dm = await get_user_by_id(session, form.manager_id)
     dm_username = f"@{dm.username}" if dm and dm.username else "—"
     text = f"От кого заявка: <b>{dm_username}</b>\n\n" + _format_form_text(form, manager_tag)
     for tl_id in tl_ids:

@@ -126,8 +126,26 @@ def _period_to_range(period: str | None) -> tuple[datetime | None, datetime | No
     return None, None
 
 
+async def _form_visible_for_tl(session: AsyncSession, form: Form, tl_source: TeamLeadSource) -> bool:
+    mgr = await get_user_by_id(session, int(form.manager_id))
+    src = (getattr(mgr, "manager_source", None) or "TG").upper() if mgr else "TG"
+    tl_src = (str(tl_source).split(".")[-1] if tl_source else "TG").upper()
+    return src == tl_src
+
+
 async def _render_tl_live_list(message_or_cq: Message | CallbackQuery, session: AsyncSession) -> None:
-    forms = await list_pending_forms(session, limit=30)
+    forms_all = await list_pending_forms(session, limit=30)
+    tl = None
+    if isinstance(message_or_cq, CallbackQuery) and message_or_cq.from_user:
+        tl = await get_team_lead_by_tg_id(session, int(message_or_cq.from_user.id))
+    elif isinstance(message_or_cq, Message) and message_or_cq.from_user:
+        tl = await get_team_lead_by_tg_id(session, int(message_or_cq.from_user.id))
+    tl_source = getattr(tl, "source", TeamLeadSource.TG)
+    forms: list[Form] = []
+    for f in forms_all:
+        if await _form_visible_for_tl(session, f, tl_source):
+            forms.append(f)
+
     text = "📋 <b>Лайв анкеты</b>\n\n"
     if not forms:
         text += "Пока нет анкет в обработке."
@@ -745,6 +763,11 @@ async def tl_live_open_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
     form = await get_form(session, form_id)
     if not form or form.status != FormStatus.PENDING:
         await cq.answer("Анкета не найдена", show_alert=True)
+        return
+
+    tl_source = await _get_team_lead_source(session, cq.from_user.id)
+    if not await _form_visible_for_tl(session, form, tl_source):
+        await cq.answer("Анкета недоступна для вашего источника", show_alert=True)
         return
 
     await cq.answer()
