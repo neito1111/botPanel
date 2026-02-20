@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 import time
@@ -68,7 +69,6 @@ from bot.repositories import (
     get_user_by_id,
     get_user_by_tg_id,
     find_forms_by_phone,
-    phone_bank_duplicate_exists,
     list_dm_approved_without_payment,
     list_user_forms_in_range,
     list_rejected_forms_by_user_id,
@@ -117,6 +117,36 @@ def _format_payment_phone(phone: str | None) -> str:
 
 def _normalize_card(s: str) -> str:
     return "".join(ch for ch in (s or "") if ch.isdigit())
+
+
+def _bank_duplicate_key(bank_name: str | None) -> str:
+    txt = (bank_name or "").strip()
+    if not txt:
+        return ""
+    m = re.search(r'["«](.*?)["»]', txt)
+    if m:
+        return re.sub(r"\s+", " ", (m.group(1) or "").strip()).lower()
+    base = txt.split("-", 1)[0].strip()
+    return re.sub(r"\s+", " ", base).lower()
+
+
+async def _phone_bank_duplicate_exists_by_key(
+    session: AsyncSession,
+    *,
+    phone: str,
+    bank_name: str,
+    exclude_form_id: int | None = None,
+) -> Form | None:
+    key = _bank_duplicate_key(bank_name)
+    if not key:
+        return None
+    forms = await find_forms_by_phone(session, phone)
+    for f in forms:
+        if exclude_form_id is not None and int(f.id) == int(exclude_form_id):
+            continue
+        if _bank_duplicate_key(getattr(f, "bank_name", None)) == key:
+            return f
+    return None
 
 
 def _period_to_range(period: str | None) -> tuple[datetime | None, datetime | None]:
@@ -2772,7 +2802,7 @@ async def dm_bank_pick_id_cb(cq: CallbackQuery, session: AsyncSession, state: FS
     form.bank_name = bank_name
 
     if form.phone:
-        dup = await phone_bank_duplicate_exists(
+        dup = await _phone_bank_duplicate_exists_by_key(
             session,
             phone=str(form.phone),
             bank_name=str(form.bank_name),
@@ -2843,7 +2873,7 @@ async def dm_bank_pick_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
     form.bank_name = bank_name
 
     if form.phone:
-        dup = await phone_bank_duplicate_exists(
+        dup = await _phone_bank_duplicate_exists_by_key(
             session,
             phone=str(form.phone),
             bank_name=str(form.bank_name),
@@ -2935,7 +2965,7 @@ async def form_bank_select(message: Message, session: AsyncSession, state: FSMCo
     form.bank_name = txt
 
     if form.phone:
-        dup = await phone_bank_duplicate_exists(
+        dup = await _phone_bank_duplicate_exists_by_key(
             session,
             phone=str(form.phone),
             bank_name=str(form.bank_name),
@@ -2986,7 +3016,7 @@ async def form_bank_custom(message: Message, session: AsyncSession, state: FSMCo
         return
     form.bank_name = bank_name
     if form.phone:
-        dup = await phone_bank_duplicate_exists(
+        dup = await _phone_bank_duplicate_exists_by_key(
             session,
             phone=str(form.phone),
             bank_name=str(form.bank_name),
@@ -3436,7 +3466,7 @@ async def form_confirm_cb(cq: CallbackQuery, session: AsyncSession, state: FSMCo
 
     # hard-block duplicate phone+bank
     if cq.data == "form_submit" and form.phone and form.bank_name:
-        dup = await phone_bank_duplicate_exists(
+        dup = await _phone_bank_duplicate_exists_by_key(
             session,
             phone=str(form.phone),
             bank_name=str(form.bank_name),
@@ -3737,7 +3767,7 @@ async def dm_edit_resubmit_cb(cq: CallbackQuery, session: AsyncSession, state: F
 
     # hard-block duplicate phone+bank
     if form.phone and form.bank_name:
-        dup = await phone_bank_duplicate_exists(
+        dup = await _phone_bank_duplicate_exists_by_key(
             session,
             phone=str(form.phone),
             bank_name=str(form.bank_name),

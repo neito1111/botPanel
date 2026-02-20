@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramNetworkError
@@ -499,6 +500,25 @@ async def _send_photos(bot, chat_id: int, photos: list[str]) -> None:
         return
 
 
+def _parse_bank_core_and_suffix(raw: str) -> tuple[str, str]:
+    txt = (raw or "").strip()
+    m = re.search(r'["«](.*?)["»]', txt)
+    if m:
+        core = (m.group(1) or "").strip()
+        rest = (txt[: m.start()] + txt[m.end() :]).strip()
+    else:
+        core = txt
+        rest = ""
+    core = re.sub(r"\s+", " ", core).strip(" -")
+    rest = re.sub(r"\s+", " ", rest).strip(" -")
+    return core, rest
+
+
+def _compose_bank_name(core: str, suffix: str, limit_part: str) -> str:
+    parts = [p for p in [core.strip(), suffix.strip(), limit_part.strip()] if p]
+    return "-".join(parts)
+
+
 def _has_conditions(bank) -> bool:
     return any(
         [
@@ -895,7 +915,9 @@ async def bank_create_start(cq: CallbackQuery, session: AsyncSession, state: FSM
         await cq.message.answer(
             "Сейчас создадим условия для банка:\n"
             "- сначала <b>название банка</b>\n"
-            "- потом <b>2–3 предложения условий</b>",
+            "- потом <b>лимит (необязательно)</b>\n"
+            "- потом <b>2–3 предложения условий</b>\n\n"
+            "Подсказка: основное имя банка пишите в кавычках, например: <code>\"Альянс\" 500</code>",
             reply_markup=kb_back(),
         )
         await cq.message.answer("Введите название банка:")
@@ -907,10 +929,41 @@ async def bank_create_name(message: Message, session: AsyncSession, state: FSMCo
         return
     if not await is_team_lead(session, message.from_user.id):
         return
-    name = message.text.strip()
-    if not name or len(name) > 64:
-        await message.answer("Введите корректное название (до 64 символов):")
+    raw = (message.text or "").strip()
+    core, suffix = _parse_bank_core_and_suffix(raw)
+    if not core or len(raw) > 64:
+        await message.answer(
+            "Введите корректное название (до 64 символов).\n"
+            "Основное имя банка укажите в кавычках, например: <code>\"Альянс\" 500</code>"
+        )
         return
+
+    await state.update_data(bank_name_core=core, bank_name_suffix=suffix)
+    await state.set_state(TeamLeadStates.bank_custom_limit)
+    await message.answer(
+        "Впишите лимит (например: <code>50к</code>) или отправьте <code>-</code> чтобы пропустить:",
+        reply_markup=kb_back(),
+    )
+
+
+@router.message(TeamLeadStates.bank_custom_limit, F.text & (F.text != "Назад"))
+async def bank_create_limit(message: Message, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not await is_team_lead(session, message.from_user.id):
+        return
+
+    data = await state.get_data()
+    core = str(data.get("bank_name_core") or "").strip()
+    suffix = str(data.get("bank_name_suffix") or "").strip()
+    limit_raw = (message.text or "").strip()
+    limit_part = "" if limit_raw in {"-", "—", ""} else limit_raw
+    name = _compose_bank_name(core, suffix, limit_part)
+
+    if not name or len(name) > 64:
+        await message.answer("Слишком длинное название. Укоротите лимит/доп.часть и попробуйте снова.")
+        return
+
     existing = await get_bank_by_name(session, name)
     if existing:
         await state.clear()
@@ -921,11 +974,9 @@ async def bank_create_name(message: Message, session: AsyncSession, state: FSMCo
         await message.answer("Выберите банк:", reply_markup=kb_banks_list(items))
         return
 
-    data = await state.get_data()
     edit_field = data.get("edit_field")
     bank = await create_bank(session, name)
     await state.clear()
-    # Immediately continue with conditions wizard
     await state.update_data(bank_id=bank.id)
     await state.set_state(TeamLeadStates.bank_instructions)
     if edit_field in {"instructions_fb", "instructions_tg"}:
@@ -933,6 +984,16 @@ async def bank_create_name(message: Message, session: AsyncSession, state: FSMCo
     await message.answer(f"✅ Создан банк <b>{bank.name}</b>.")
     await message.answer("Теперь отправьте текст условий (можно несколько строк):", reply_markup=kb_back())
     await state.update_data(return_to="banks_list")
+
+
+@router.message(TeamLeadStates.bank_custom_limit, F.text == "Назад")
+async def bank_create_limit_back(message: Message, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not await is_team_lead(session, message.from_user.id):
+        return
+    await state.set_state(TeamLeadStates.bank_custom_name)
+    await message.answer("Введите название банка:", reply_markup=kb_back())
 
 
 @router.callback_query(BankEditCb.filter())
@@ -987,7 +1048,8 @@ async def bank_edit_action(cq: CallbackQuery, callback_data: BankEditCb, session
         await state.update_data(return_to="edit_menu")
         if cq.message:
             await cq.message.answer(
-                f"Введите новое название банка (сейчас: <b>{bank.name}</b>):",
+                f"Введите новое название банка (сейчас: <b>{bank.name}</b>).\n"
+                f"Подсказка: основное имя в кавычках, например <code>\"Альянс\" 500</code>",
                 reply_markup=kb_back(),
             )
         return
@@ -1027,9 +1089,48 @@ async def bank_rename_name(message: Message, session: AsyncSession, state: FSMCo
         await message.answer("⚠️ Сессия сбилась. Зайдите в 'Условия для сдачи' и выберите банк заново.")
         return
 
-    name = (message.text or "").strip()
+    raw = (message.text or "").strip()
+    core, suffix = _parse_bank_core_and_suffix(raw)
+    if not core or len(raw) > 64:
+        await message.answer(
+            "Введите корректное название (до 64 символов).\n"
+            "Основное имя банка укажите в кавычках, например: <code>\"Альянс\" 500</code>"
+        )
+        return
+
+    bank = await get_bank(session, int(bank_id_raw))
+    if not bank:
+        await state.clear()
+        await message.answer("Банк не найден")
+        return
+
+    await state.update_data(bank_name_core=core, bank_name_suffix=suffix)
+    await state.set_state(TeamLeadStates.bank_rename_limit)
+    await message.answer("Впишите лимит (например: <code>50к</code>) или <code>-</code> чтобы убрать/пропустить:", reply_markup=kb_back())
+
+
+@router.message(TeamLeadStates.bank_rename_limit, F.text & (F.text != "Назад"))
+async def bank_rename_limit(message: Message, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not await is_team_lead(session, message.from_user.id):
+        return
+
+    data = await state.get_data()
+    bank_id_raw = data.get("bank_id")
+    if not bank_id_raw:
+        await state.clear()
+        await message.answer("⚠️ Сессия сбилась. Зайдите в 'Условия для сдачи' и выберите банк заново.")
+        return
+
+    core = str(data.get("bank_name_core") or "").strip()
+    suffix = str(data.get("bank_name_suffix") or "").strip()
+    limit_raw = (message.text or "").strip()
+    limit_part = "" if limit_raw in {"-", "—", ""} else limit_raw
+    name = _compose_bank_name(core, suffix, limit_part)
+
     if not name or len(name) > 64:
-        await message.answer("Введите корректное название (до 64 символов):")
+        await message.answer("Слишком длинное название. Укоротите лимит/доп.часть и попробуйте снова.")
         return
 
     bank = await get_bank(session, int(bank_id_raw))
@@ -1040,13 +1141,23 @@ async def bank_rename_name(message: Message, session: AsyncSession, state: FSMCo
 
     existing = await get_bank_by_name(session, name)
     if existing and int(existing.id) != int(bank.id):
-        await message.answer("⚠️ Банк с таким названием уже существует. Введите другое название:")
+        await message.answer("⚠️ Банк с таким названием уже существует. Введите другой лимит/название:")
         return
 
     await update_bank(session, int(bank.id), name=name)
     await state.clear()
     await _notify_active_dms_banks_updated(message.bot, session)
     await message.answer("✅ Название банка обновлено.", reply_markup=kb_team_lead_inline_main())
+
+
+@router.message(TeamLeadStates.bank_rename_limit, F.text == "Назад")
+async def bank_rename_limit_back(message: Message, session: AsyncSession, state: FSMContext, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not await is_team_lead(session, message.from_user.id):
+        return
+    await state.set_state(TeamLeadStates.bank_rename_name)
+    await message.answer("Введите новое название банка:", reply_markup=kb_back())
 
 
 @router.message(TeamLeadStates.bank_rename_name, F.text == "Назад")
